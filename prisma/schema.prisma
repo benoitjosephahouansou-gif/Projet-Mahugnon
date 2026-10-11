@@ -1,0 +1,454 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPER_ADMIN
+  VENDOR
+}
+
+enum VendorStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+  BANNED
+}
+
+enum OrderStatus {
+  NEW_TO_CALL           // 🆕 Nouvelle — à rappeler (défaut)
+  CALLED_NEGOTIATING    // 📞 Appelée — en négociation
+  CONFIRMED             // ✅ Confirmée
+  IN_DELIVERY           // 🚚 En cours de livraison
+  DELIVERED_PAID        // 💰 Livrée — payée
+  CANCELLED             // ❌ Annulée
+  RETURNED              // ↩️ Retournée
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum LoyaltyTier {
+  BRONZE    // 0 - 499 pts (0%)
+  ARGENT    // 500 - 1499 pts (3%)
+  OR        // 1500 - 4999 pts (5%)
+  PLATINE   // 5000+ pts (10% + livraison gratuite)
+}
+
+enum LoyaltyTxType {
+  EARNED
+  REDEEMED
+  ADJUSTED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_XOF
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  passwordHash   String
+  name           String
+  phone          String       @default("+22997000000")
+  role           Role         @default(VENDOR)
+  status         VendorStatus @default(APPROVED)
+  avatarUrl      String?
+  onboardingDone Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  shops          Shop[]
+  pushTokens     PushToken[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+}
+
+model Currency {
+  id        String   @id @default(uuid())
+  code      String   @unique // XOF, NGN, GHS, GNF, XAF, USD, EUR
+  name      String   // Franc CFA UEMOA, Naira nigérian, etc.
+  symbol    String   // FCFA, ₦, GH₵, FG, $, €
+  rateToXOF Float    // 1 XOF = rateToXOF [Target]
+  active    Boolean  @default(true)
+  isPivot   Boolean  @default(false)
+  flag      String   @default("🌐") // Drapeau emoji
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Shop {
+  id                 String         @id @default(uuid())
+  vendorId           String
+  vendor             User           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name               String
+  slug               String         @unique
+  description        String?
+  logoUrl            String?
+  bannerUrl          String?
+  country            String         @default("Bénin")
+  city               String         @default("Cotonou")
+  phone              String         @default("+22997000000")
+  whatsappNumber     String         @default("+22997000000")
+  facebookUrl        String?
+  instagramUrl       String?
+  tiktokUrl          String?
+  category           String         @default("Mode & Vêtements")
+  plan               String         @default("FREE") // FREE, PRO, BUSINESS
+  active             Boolean        @default(true)
+  isDemo             Boolean        @default(false)
+  acceptedCurrencies String[]       @default(["XOF", "NGN", "GHS", "GNF", "XAF", "USD", "EUR"])
+  defaultCurrency    String         @default("XOF")
+  primaryColor       String         @default("#1E40AF")
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  products           Product[]
+  categories         Category[]
+  orders             Order[]
+  pages              Page[]
+  reviews            Review[]
+  shippingZones      ShippingZone[]
+  promoCodes         PromoCode[]
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  shopId      String
+  shop        Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  description String?
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([shopId, slug])
+}
+
+model Product {
+  id                String           @id @default(uuid())
+  shopId            String
+  shop              Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  categoryId        String?
+  category          Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name              String
+  slug              String
+  shortCode         String?          @unique // 6 chars (ex: aB3xK) pour lien court pub
+  description       String           // HTML / Rich Text
+  priceXOF          Float            // Prix pivot en FCFA
+  compareAtPriceXOF Float?           // Prix barré
+  sku               String?
+  stock             Int              @default(15)
+  weight            Float?           // en kg
+  status            ProductStatus    @default(ACTIVE)
+  isPromo           Boolean          @default(false)
+  isDemo            Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  images            ProductImage[]
+  variants          ProductVariant[]
+  reviews           Review[]
+  wishlistItems     WishlistItem[]
+  orderItems        OrderItem[]
+  links             ProductLink[]
+  visits            ProductVisit[]
+
+  @@unique([shopId, slug])
+}
+
+model ProductImage {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  altText   String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model ProductVariant {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String   // ex: "Taille XL / Couleur Bleu"
+  sku       String?
+  priceXOF  Float?   // Si prix différent
+  stock     Int      @default(5)
+  attributes Json?   // { "Taille": "XL", "Couleur": "Bleu" }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Order {
+  id                  String               @id @default(uuid())
+  orderNumber         String               @unique // ex: MHG-2025-0012
+  shopId              String
+  shop                Shop                 @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  status              OrderStatus          @default(NEW_TO_CALL)
+
+  // Coordonnées client (sans compte)
+  customerName        String
+  customerPhone       String               // WhatsApp obligatoire (+229...)
+  secondaryPhone      String?
+  customerEmail       String?
+
+  // Localisation
+  city                String               // Cotonou, Porto-Novo, Parakou...
+  district            String               // Akpakpa, Cadjehoun...
+  address             String               // Rue Pavée Sainte-Cécile...
+  landmark            String?              // Derrière la pharmacie...
+  notes               String?              // Heure d'appel souhaitée, précisions
+  internalNotes       String?              // Notes privées vendeur/admin
+
+  // Finances
+  subtotalXOF         Float
+  shippingFeeXOF      Float                @default(0)
+  loyaltyDiscountXOF  Float                @default(0)
+  promoDiscountXOF    Float                @default(0)
+  promoCode           String?
+  totalXOF            Float
+
+  // Multi-devises
+  clientCurrency      String               @default("XOF")
+  exchangeRate        Float                @default(1.0)
+  totalClientCurrency Float
+
+  // Tracking pub & UTM
+  utmSource           String?
+  utmMedium           String?
+  utmCampaign         String?
+
+  items               OrderItem[]
+  history             OrderStatusHistory[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+model OrderItem {
+  id               String   @id @default(uuid())
+  orderId          String
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId        String?
+  product          Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName      String
+  variantName      String?
+  quantity         Int      @default(1)
+  unitPriceXOF     Float
+  unitPriceClient  Float
+  totalPriceXOF    Float
+  totalPriceClient Float
+  imageUrl         String?
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(uuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  changedBy String      @default("Système")
+  createdAt DateTime    @default(now())
+}
+
+model Customer {
+  id                String   @id @default(uuid())
+  fullName          String
+  phone             String   @unique
+  email             String?
+  city              String?
+  district          String?
+  address           String?
+  totalOrders       Int      @default(0)
+  totalSpentXOF     Float    @default(0)
+  preferredCurrency String   @default("XOF")
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Review {
+  id                 String       @id @default(uuid())
+  shopId             String
+  shop               Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  productId          String
+  product            Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rating             Int          @default(5)
+  title              String
+  comment            String
+  authorName         String
+  authorPhone        String?
+  photos             String[]     @default([])
+  isVerifiedPurchase Boolean      @default(false)
+  isAutoGenerated    Boolean      @default(false)
+  status             ReviewStatus @default(APPROVED)
+  reply              String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+}
+
+model WishlistItem {
+  id            String   @id @default(uuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  customerPhone String?
+  sessionId     String?
+  createdAt     DateTime @default(now())
+
+  @@index([customerPhone])
+  @@index([sessionId])
+}
+
+model LoyaltyMember {
+  id            String               @id @default(uuid())
+  fullName      String
+  phone         String               @unique // Reconnaissance automatique
+  currentPoints Int                  @default(0)
+  tier          LoyaltyTier          @default(BRONZE)
+  totalSpentXOF Float                @default(0)
+  transactions  LoyaltyTransaction[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+}
+
+model LoyaltyTransaction {
+  id        String        @id @default(uuid())
+  memberId  String
+  member    LoyaltyMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  points    Int
+  type      LoyaltyTxType
+  reason    String
+  orderId   String?
+  createdAt DateTime      @default(now())
+}
+
+model PromoCode {
+  id                String       @id @default(uuid())
+  shopId            String?
+  shop              Shop?        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  code              String       @unique
+  discountType      DiscountType @default(PERCENTAGE)
+  discountValue     Float
+  minOrderAmountXOF Float        @default(0)
+  maxUses           Int?
+  usedCount         Int          @default(0)
+  expiresAt         DateTime?
+  active            Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+model Page {
+  id          String   @id @default(uuid())
+  shopId      String?
+  shop        Shop?    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  title       String
+  slug        String
+  content     String
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([shopId, slug])
+}
+
+model ShippingZone {
+  id                       String   @id @default(uuid())
+  shopId                   String?
+  shop                     Shop?    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name                     String   // ex: Cotonou - Akpakpa
+  city                     String   // Cotonou, Porto-Novo, Parakou...
+  district                 String?  // Akpakpa, Cadjehoun...
+  feeXOF                   Float    // ex: 1500 FCFA
+  freeShippingThresholdXOF Float?   // ex: 30000 FCFA
+  isNegotiable             Boolean  @default(false)
+  active                   Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model ProductLink {
+  id          String   @id @default(uuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  slug        String
+  shortCode   String   @unique // ex: aB3xK
+  utmSource   String?  // facebook, tiktok, whatsapp
+  utmMedium   String?  // cpc, post, bio
+  utmCampaign String?  // promo_wax_2025
+  clicksCount Int      @default(0)
+  ordersCount Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ProductVisit {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  source    String?
+  medium    String?
+  campaign  String?
+  ipHash    String?
+  city      String?
+  userAgent String?
+  createdAt DateTime @default(now())
+}
+
+model PushToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String   @default("web")
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId    String?
+  type      String   // NEW_ORDER, LOW_STOCK, CALL_REMINDER, NEW_REVIEW, SYSTEM
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  deepLink  String?  // ex: /vendeur/commandes/MHG-2025-0012
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String   // VENDOR_APPROVED, PRODUCT_CREATED, ORDER_STATUS_CHANGED...
+  entity      String   // User, Product, Order, Shop
+  entityId    String
+  details     Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+}
+
+model Setting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String   // Valeur en texte ou JSON
+  isDemo    Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+}
