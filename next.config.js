@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+   output: "standalone", // Ajoute cette ligne
+  serverExternalPackages: ["@prisma/client", ".prisma/client", "postgres"],
   reactStrictMode: true,
   images: {
     remotePatterns: [
