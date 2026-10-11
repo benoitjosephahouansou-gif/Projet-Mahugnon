@@ -141,7 +141,7 @@ export default function CheckoutPage() {
         landmark: landmark.trim() || undefined,
         notes: notes.trim() || undefined,
         promoCode: promoCode.trim() || undefined,
-        clientCurrency,
+        currentCurrency,
         items: items.map((i) => ({
           productId: i.productId,
           productName: i.name,
@@ -205,7 +205,7 @@ export default function CheckoutPage() {
             <div className="flex justify-between text-xs">
               <span className="text-slate-500 font-semibold">Montant à régler à la livraison :</span>
               <span className="font-black text-slate-900 dark:text-slate-100">
-                {formatCurrency(orderSuccess.totalClientCurrency, orderSuccess.clientCurrency)}
+                {formatCurrency(orderSuccess.totalcurrentCurrency, orderSuccess.currentCurrency)}
               </span>
             </div>
             <div className="flex justify-between text-[11px] text-slate-400">
