@@ -1173,7 +1173,7 @@ async function main() {
               unitPriceClient: product.priceXOF,
               totalPriceXOF: subtotal,
               totalPriceClient: subtotal,
-              imageUrl: product.images?.[0] || 'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=300&q=80',
+              imageUrl:'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=300&q=80',
             },
           ],
         },
